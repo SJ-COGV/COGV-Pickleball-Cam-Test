@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>Pickleball Court Camera</title>
-    <!-- Refresh every 60 seconds -->
     <meta http-equiv="refresh" content="60">
     <style>
         body { 
@@ -22,11 +21,23 @@
             margin-top: 20px;
         }
     </style>
+    <script>
+        // --- CHANGE THIS PASSWORD ---
+        const correctPassword = "Password";
+
+        // Ask for password
+        const entered = prompt("Enter password to view the camera:");
+
+        // If wrong, replace the entire page with Access Denied
+        if (entered !== correctPassword) {
+            document.write("<h1 style='color:white;text-align:center;margin-top:50px;'>Access Denied</h1>");
+        }
+    </script>
 </head>
 <body>
     <h1>Pickleball Court Camera</h1>
     <img src="snapshot.jpg" alt="Latest Snapshot">
     <p>This page refreshes automatically every 60 seconds.</p>
-    <p>testing the commit</p>
 </body>
 </html>
+
