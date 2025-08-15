@@ -30,53 +30,82 @@
   </header>
 
 <script>
-  const PUBLISH_INTERVAL_MS = 120000; // 2 minutes
-  const IMAGE_REFRESH_MS = 30000;     // reload <img> every 30s
+  // ===== settings =====
+  const PUBLISH_INTERVAL_MS = 120000;   // 2 min (keep this in sync with your timer)
+  const IMAGE_REFRESH_MS    = 30000;    // reload <img> for cache-bust
+  const PIPELINE_OFFSET_MS  = 13000;    // your ~13s GitHub→Netlify delay
+  const DRIFT_GRACE_MS      = 30000;    // how long to wait past due before declaring "waiting…"
+  // =====================
 
-  const snap = document.getElementById('snap');
-  const countEl = document.getElementById('count');
+  const snap   = document.getElementById('snap');
+  const count  = document.getElementById('count');
 
-  let lastPublished = 0;
-  let nextTarget = Date.now() + PUBLISH_INTERVAL_MS;
+  let lastPublished = 0;                  // ms epoch from meta.json
+  let nextTarget    = Date.now() + PUBLISH_INTERVAL_MS + PIPELINE_OFFSET_MS;
+  let stalled       = false;
 
   function fmt(ms){
     const s = Math.max(0, Math.floor(ms/1000));
     const m = String(Math.floor(s/60)).padStart(2,'0');
-    const ss = String(s%60).padStart(2,'0');
+    const ss = String(s % 60).padStart(2,'0');
     return `${m}:${ss}`;
   }
 
-  async function loadMeta() {
-    try {
-      const res = await fetch('meta.json?t=' + Date.now(), { cache: 'no-store' });
-      if (!res.ok) return;
-      const meta = await res.json();
-      const ts = Date.parse(meta.lastPublished);
-      if (Number.isFinite(ts) && ts > lastPublished) {
-        lastPublished = ts;
-        nextTarget = ts + 13000 + PUBLISH_INTERVAL_MS;        // snap countdown to real publish time
-        snap.src = 'snapshot.jpg?t=' + Date.now();    // show fresh image immediately
-      }
-    } catch {}
+  function showWaiting(){
+    stalled = true;
+    count.textContent = 'waiting…';
   }
 
-  function tick() {
+  function resumeFrom(ts){
+    stalled = false;
+    lastPublished = ts;
+    nextTarget    = ts + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS;
+    // show fresh image immediately
+    snap.src = 'snapshot.jpg?t=' + Date.now();
+  }
+
+  async function loadMeta(){
+    try{
+      const res = await fetch('meta.json?t=' + Date.now(), { cache: 'no-store' });
+      if(!res.ok) return;
+      const meta = await res.json();
+      const ts = Date.parse(meta.lastPublished);
+      if(Number.isFinite(ts) && ts > lastPublished){
+        resumeFrom(ts);
+      }
+    }catch(_e){}
+  }
+
+  function tick(){
+    if(stalled){ return; }                       // frozen until meta changes
     const rem = nextTarget - Date.now();
-    countEl.textContent = fmt(rem);
-    if (rem <= 0) {
-      // hit zero → check for a new publish; if not yet, try again shortly
+    count.textContent = fmt(rem);
+
+    if(rem <= 0){
+      // We reached (or passed) zero — check for a new publish.
       loadMeta();
-      nextTarget = Date.now() + 5000; // small grace period
+
+      // If we're late by more than grace, pause and wait for meta to move.
+      const overdue = Date.now() - (lastPublished + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS);
+      if(overdue > DRIFT_GRACE_MS){
+        showWaiting();
+      }else{
+        // Small step while waiting for the actual deploy to land.
+        nextTarget = Date.now() + 5000;
+      }
     }
   }
 
-  setInterval(loadMeta, 7000);                                // stay in sync
-  setInterval(() => { snap.src = 'snapshot.jpg?t=' + Date.now(); }, IMAGE_REFRESH_MS);
+  // Periodic checks to catch new publishes and keep the image fresh.
+  setInterval(loadMeta, 7000);
+  setInterval(() => { if(!stalled){ snap.src = 'snapshot.jpg?t=' + Date.now(); } }, IMAGE_REFRESH_MS);
   setInterval(tick, 1000);
 
+  // Kick off
   loadMeta();
   snap.src = 'snapshot.jpg?t=' + Date.now();
 </script>
+
 
 </body>
 </html>
