@@ -54,7 +54,7 @@
       const ts = Date.parse(meta.lastPublished);
       if (Number.isFinite(ts) && ts > lastPublished) {
         lastPublished = ts;
-        nextTarget = ts + PUBLISH_INTERVAL_MS;        // snap countdown to real publish time
+        nextTarget = ts + 13000 + PUBLISH_INTERVAL_MS;        // snap countdown to real publish time
         snap.src = 'snapshot.jpg?t=' + Date.now();    // show fresh image immediately
       }
     } catch {}
