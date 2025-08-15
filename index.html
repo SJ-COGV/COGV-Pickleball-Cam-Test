@@ -76,25 +76,35 @@
     }catch(_e){}
   }
 
-  function tick(){
-    if(stalled){ return; }                       // frozen until meta changes
-    const rem = nextTarget - Date.now();
-    count.textContent = fmt(rem);
+  let holdAtZeroUntil = null;  // track when to switch to waiting
 
-    if(rem <= 0){
-      // We reached (or passed) zero — check for a new publish.
-      loadMeta();
+function tick(){
+  if(stalled){ return; }
 
-      // If we're late by more than grace, pause and wait for meta to move.
-      const overdue = Date.now() - (lastPublished + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS);
-      if(overdue > DRIFT_GRACE_MS){
-        showWaiting();
-      }else{
-        // Small step while waiting for the actual deploy to land.
-        nextTarget = Date.now() + 5000;
-      }
-    }
+  const rem = nextTarget - Date.now();
+  if(rem > 0){
+    countEl.textContent = fmt(rem);
+    holdAtZeroUntil = null; // reset hold timer
+    return;
   }
+
+  // At or past zero
+  if(holdAtZeroUntil === null){
+    holdAtZeroUntil = Date.now() + 15000; // 15s hold
+  }
+
+  countEl.textContent = '00:00';
+
+  // If we’ve held long enough without a new publish, go to waiting
+  const overdue = Date.now() - (lastPublished + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS);
+  if(Date.now() >= holdAtZeroUntil && overdue > 0){
+    showWaiting();
+  }
+
+  // Keep checking for updates while holding
+  loadMeta();
+}
+
 
   // Periodic checks to catch new publishes and keep the image fresh.
   setInterval(loadMeta, 7000);
