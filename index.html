@@ -31,20 +31,22 @@
 
 <script>
   // ===== settings =====
-  const PUBLISH_INTERVAL_MS = 120000;   // 2 min (match your systemd timer)
-  const IMAGE_REFRESH_MS    = 30000;    // reload <img> to bust cache
-  const PIPELINE_OFFSET_MS  = 13000;    // your ~13s GitHub→Netlify delay
-  const META_POLL_MS        = 7000;     // check meta.json for updates
+  const PUBLISH_INTERVAL_MS = 120000;   // 2 min
+  const IMAGE_REFRESH_MS    = 30000;    // reload <img>
+  const PIPELINE_OFFSET_MS  = 13000;    // your ~13s deploy delay
+  const META_POLL_MS        = 7000;     // check meta.json
   // =====================
 
-  const snap   = document.getElementById('snap');
+  const snap    = document.getElementById('snap');
   const countEl = document.getElementById('count');
 
   // ---- state ----
-  let lastPublished = 0;                                            // ms epoch from meta.json
-  let nextTarget    = Date.now() + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS;
+  let lastPublished = Number(localStorage.getItem('lastPublishedMs') || 0);
+  let nextTarget    = lastPublished
+    ? (lastPublished + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS)
+    : (Date.now() + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS);
   let stalled       = false;
-  let holdAtZeroUntil = null;                                       // for the 15s hold at 0
+  let holdAtZeroUntil = null; // 15s hold at 00:00
 
   function fmt(ms){
     const s = Math.max(0, Math.floor(ms/1000));
@@ -61,60 +63,65 @@
   function resumeFrom(ts){
     stalled = false;
     lastPublished = ts;
+    localStorage.setItem('lastPublishedMs', String(ts));
     holdAtZeroUntil = null;
-    nextTarget = ts + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS;     // snap countdown to real publish + offset
-    // show fresh image immediately
-    snap.src = 'snapshot.jpg?t=' + Date.now();
+    nextTarget = ts + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS;
+    snap.src = 'snapshot.jpg?t=' + Date.now();   // show fresh image immediately
   }
 
   async function loadMeta(){
     try{
       const res = await fetch('meta.json?t=' + Date.now(), { cache: 'no-store' });
-      if(!res.ok) return;
+      if(!res.ok) return false;
       const meta = await res.json();
       const ts = Date.parse(meta.lastPublished);
       if(Number.isFinite(ts) && ts > lastPublished){
         resumeFrom(ts);
       }
-    }catch(_e){}
+      return true;
+    }catch{ return false; }
   }
 
   function tick(){
-    // If we're stalled, stay on "waiting…" until meta advances.
-    if(stalled){ return; }
-
+    if(stalled) return;
     const rem = nextTarget - Date.now();
 
     if(rem > 0){
       countEl.textContent = fmt(rem);
-      holdAtZeroUntil = null;               // reset any previous hold
+      holdAtZeroUntil = null;
       return;
     }
 
-    // At or past zero → start/continue the 15s hold
+    // At/past zero: hold 15s at 00:00 before showing "waiting…"
     if(holdAtZeroUntil === null){
-      holdAtZeroUntil = Date.now() + 15000; // 15s hold at 00:00
+      holdAtZeroUntil = Date.now() + 15000;
     }
     countEl.textContent = '00:00';
 
-    // Check if a new publish arrived during the hold
+    // Check for a new publish while holding
     loadMeta();
 
-    // If we've held the full 15s without a new publish, go to "waiting…"
     if(Date.now() >= holdAtZeroUntil){
       showWaiting();
     }
   }
 
-  // Periodic checks & refresh
-  setInterval(loadMeta, META_POLL_MS);
-  setInterval(() => { if(!stalled){ snap.src = 'snapshot.jpg?t=' + Date.now(); } }, IMAGE_REFRESH_MS);
-  setInterval(tick, 1000);
+  // ------- init without flashing wrong time -------
+  (async function init(){
+    countEl.textContent = lastPublished ? fmt(nextTarget - Date.now()) : 'syncing…';
 
-  // Kick off: render something immediately & start syncing
-  countEl.textContent = fmt(PUBLISH_INTERVAL_MS + PIPELINE_OFFSET_MS);
-  snap.src = 'snapshot.jpg?t=' + Date.now();
-  loadMeta();
+    // Try to sync once before starting intervals (prevents the flash)
+    await loadMeta();
+
+    // Start intervals only after initial sync attempt
+    setInterval(loadMeta, META_POLL_MS);
+    setInterval(() => { if(!stalled){ snap.src = 'snapshot.jpg?t=' + Date.now(); } }, IMAGE_REFRESH_MS);
+    setInterval(tick, 1000);
+
+    // Render immediately
+    snap.src = 'snapshot.jpg?t=' + Date.now();
+    tick();
+  })();
 </script>
 
 
