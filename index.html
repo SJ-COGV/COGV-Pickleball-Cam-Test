@@ -29,61 +29,55 @@
     <div class="meta">Image is automatically updates every 2 minutes.</div>
   </header>
 
-  <script>
-    // ======= settings =======
-    const PUBLISH_INTERVAL_MS = 120000; // 2 minutes (change to 60000 if you move timer to every 1 min)
-    const IMAGE_REFRESH_MS   = 30000;   // refresh the <img> every 30s
-    // ========================
+<script>
+  const PUBLISH_INTERVAL_MS = 120000; // 2 minutes
+  const IMAGE_REFRESH_MS = 30000;     // reload <img> every 30s
 
-    const snap = document.getElementById('snap');
-    const lastModEl = document.getElementById('lastMod');
-    const countEl = document.getElementById('count');
+  const snap = document.getElementById('snap');
+  const countEl = document.getElementById('count');
 
-    // format mm:ss
-    function fmt(ms){
-      const s = Math.max(0, Math.floor(ms/1000));
-      const m = Math.floor(s/60).toString().padStart(2,'0');
-      const ss = (s%60).toString().padStart(2,'0');
-      return `${m}:${ss}`;
-    }
+  let lastPublished = 0;
+  let nextTarget = Date.now() + PUBLISH_INTERVAL_MS;
 
-    // fetch Last-Modified header and show it
-    async function updateLastModified(){
-      try{
-        const head = await fetch('snapshot.jpg?head=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
-        const lm = head.headers.get('Last-Modified');
-        if(lm){
-          const d = new Date(lm);
-          lastModEl.textContent = d.toLocaleString();
-          // reset countdown anchored to last-modified time
-          nextTickTarget = d.getTime() + PUBLISH_INTERVAL_MS;
-        }
-      }catch(e){ /* ignore */ }
-    }
+  function fmt(ms){
+    const s = Math.max(0, Math.floor(ms/1000));
+    const m = String(Math.floor(s/60)).padStart(2,'0');
+    const ss = String(s%60).padStart(2,'0');
+    return `${m}:${ss}`;
+  }
 
-    // keep the image fresh
-    function refreshImage(){
-      snap.src = 'snapshot.jpg?t=' + Date.now();
-      updateLastModified();
-    }
-
-    // countdown
-    let nextTickTarget = Date.now() + PUBLISH_INTERVAL_MS;
-    setInterval(() => {
-      const remaining = nextTickTarget - Date.now();
-      countEl.textContent = fmt(remaining);
-      if (remaining <= 0) {
-        nextTickTarget = Date.now() + PUBLISH_INTERVAL_MS;
-        // also refresh image when countdown hits zero (in case a new publish just landed)
-        refreshImage();
+  async function loadMeta() {
+    try {
+      const res = await fetch('meta.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return;
+      const meta = await res.json();
+      const ts = Date.parse(meta.lastPublished);
+      if (Number.isFinite(ts) && ts > lastPublished) {
+        lastPublished = ts;
+        nextTarget = ts + PUBLISH_INTERVAL_MS;        // snap countdown to real publish time
+        snap.src = 'snapshot.jpg?t=' + Date.now();    // show fresh image immediately
       }
-    }, 1000);
+    } catch {}
+  }
 
-    // kick things off
-    refreshImage();                       // immediate
-    setInterval(refreshImage, IMAGE_REFRESH_MS);  // every 30s
-    
-  </script>
+  function tick() {
+    const rem = nextTarget - Date.now();
+    countEl.textContent = fmt(rem);
+    if (rem <= 0) {
+      // hit zero → check for a new publish; if not yet, try again shortly
+      loadMeta();
+      nextTarget = Date.now() + 5000; // small grace period
+    }
+  }
+
+  setInterval(loadMeta, 7000);                                // stay in sync
+  setInterval(() => { snap.src = 'snapshot.jpg?t=' + Date.now(); }, IMAGE_REFRESH_MS);
+  setInterval(tick, 1000);
+
+  loadMeta();
+  snap.src = 'snapshot.jpg?t=' + Date.now();
+</script>
+
 </body>
 </html>
 
