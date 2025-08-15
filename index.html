@@ -31,18 +31,20 @@
 
 <script>
   // ===== settings =====
-  const PUBLISH_INTERVAL_MS = 120000;   // 2 min (keep this in sync with your timer)
-  const IMAGE_REFRESH_MS    = 30000;    // reload <img> for cache-bust
+  const PUBLISH_INTERVAL_MS = 120000;   // 2 min (match your systemd timer)
+  const IMAGE_REFRESH_MS    = 30000;    // reload <img> to bust cache
   const PIPELINE_OFFSET_MS  = 13000;    // your ~13s GitHub→Netlify delay
-  const DRIFT_GRACE_MS      = 30000;    // how long to wait past due before declaring "waiting…"
+  const META_POLL_MS        = 7000;     // check meta.json for updates
   // =====================
 
   const snap   = document.getElementById('snap');
-  const count  = document.getElementById('count');
+  const countEl = document.getElementById('count');
 
-  let lastPublished = 0;                  // ms epoch from meta.json
-  let nextTarget    = Date.now() + PUBLISH_INTERVAL_MS + PIPELINE_OFFSET_MS;
+  // ---- state ----
+  let lastPublished = 0;                                            // ms epoch from meta.json
+  let nextTarget    = Date.now() + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS;
   let stalled       = false;
+  let holdAtZeroUntil = null;                                       // for the 15s hold at 0
 
   function fmt(ms){
     const s = Math.max(0, Math.floor(ms/1000));
@@ -53,13 +55,14 @@
 
   function showWaiting(){
     stalled = true;
-    count.textContent = 'waiting…';
+    countEl.textContent = 'waiting…';
   }
 
   function resumeFrom(ts){
     stalled = false;
     lastPublished = ts;
-    nextTarget    = ts + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS;
+    holdAtZeroUntil = null;
+    nextTarget = ts + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS;     // snap countdown to real publish + offset
     // show fresh image immediately
     snap.src = 'snapshot.jpg?t=' + Date.now();
   }
@@ -76,45 +79,44 @@
     }catch(_e){}
   }
 
-  let holdAtZeroUntil = null;  // track when to switch to waiting
+  function tick(){
+    // If we're stalled, stay on "waiting…" until meta advances.
+    if(stalled){ return; }
 
-function tick(){
-  if(stalled){ return; }
+    const rem = nextTarget - Date.now();
 
-  const rem = nextTarget - Date.now();
-  if(rem > 0){
-    countEl.textContent = fmt(rem);
-    holdAtZeroUntil = null; // reset hold timer
-    return;
+    if(rem > 0){
+      countEl.textContent = fmt(rem);
+      holdAtZeroUntil = null;               // reset any previous hold
+      return;
+    }
+
+    // At or past zero → start/continue the 15s hold
+    if(holdAtZeroUntil === null){
+      holdAtZeroUntil = Date.now() + 15000; // 15s hold at 00:00
+    }
+    countEl.textContent = '00:00';
+
+    // Check if a new publish arrived during the hold
+    loadMeta();
+
+    // If we've held the full 15s without a new publish, go to "waiting…"
+    if(Date.now() >= holdAtZeroUntil){
+      showWaiting();
+    }
   }
 
-  // At or past zero
-  if(holdAtZeroUntil === null){
-    holdAtZeroUntil = Date.now() + 15000; // 15s hold
-  }
-
-  countEl.textContent = '00:00';
-
-  // If we’ve held long enough without a new publish, go to waiting
-  const overdue = Date.now() - (lastPublished + PIPELINE_OFFSET_MS + PUBLISH_INTERVAL_MS);
-  if(Date.now() >= holdAtZeroUntil && overdue > 0){
-    showWaiting();
-  }
-
-  // Keep checking for updates while holding
-  loadMeta();
-}
-
-
-  // Periodic checks to catch new publishes and keep the image fresh.
-  setInterval(loadMeta, 7000);
+  // Periodic checks & refresh
+  setInterval(loadMeta, META_POLL_MS);
   setInterval(() => { if(!stalled){ snap.src = 'snapshot.jpg?t=' + Date.now(); } }, IMAGE_REFRESH_MS);
   setInterval(tick, 1000);
 
-  // Kick off
-  loadMeta();
+  // Kick off: render something immediately & start syncing
+  countEl.textContent = fmt(PUBLISH_INTERVAL_MS + PIPELINE_OFFSET_MS);
   snap.src = 'snapshot.jpg?t=' + Date.now();
+  loadMeta();
 </script>
+
 
 
 </body>
